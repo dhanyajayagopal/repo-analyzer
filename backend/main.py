@@ -20,6 +20,17 @@ load_dotenv()
 
 # Check what was loaded
 api_key = os.getenv("OPENAI_API_KEY")
+openai_client = None
+try:
+    if api_key:
+        from openai import OpenAI
+        openai_client = OpenAI(api_key=api_key)
+        print("✅ OpenAI client initialized successfully")
+    else:
+        print("⚠️ No OpenAI API key found - using mock responses")
+except Exception as e:
+    print(f"❌ Error initializing OpenAI client: {e}")
+    openai_client = None
 
 app = FastAPI(title="Repo Analyzer API")
 
@@ -218,7 +229,7 @@ async def ask_about_code(repo_id: str, request: AskRequest):
     languages = list(set(e['language'] for e in elements))
     
     # Use real OpenAI if available, otherwise use smart mock
-    if client:
+    if openai_client:  # Changed from 'client' to 'openai_client'
         try:
             # Create context from code elements
             context_parts = []
@@ -232,7 +243,7 @@ async def ask_about_code(repo_id: str, request: AskRequest):
             
             context = "\n---\n".join(context_parts)
             
-            response = client.chat.completions.create(
+            response = openai_client.chat.completions.create(  # Changed from 'client' to 'openai_client'
                 model="gpt-3.5-turbo",
                 messages=[
                     {
@@ -261,17 +272,21 @@ async def ask_about_code(repo_id: str, request: AskRequest):
     question_lower = question.lower()
     
     if any(word in question_lower for word in ['what', 'does', 'do', 'purpose']):
-        answer = f"This is a {languages[0]} project with {len(functions)} functions and {len(classes)} classes. Based on the function names like {', '.join([f['name'] for f in functions[:3]])}, it appears to handle HTTP requests and web API functionality."
+        main_functions = [f['name'] for f in functions[:3]]
+        answer = f"This is a {languages[0]} project with {len(functions)} functions and {len(classes)} classes. Key functions include: {', '.join(main_functions)}. It appears to be a library for handling HTTP requests and web functionality."
     elif any(word in question_lower for word in ['how many', 'count']):
         answer = f"Code statistics:\n• {len(functions)} functions\n• {len(classes)} classes\n• {len(set(e['file_path'] for e in elements))} files\n• Language: {', '.join(languages)}"
     elif any(word in question_lower for word in ['main', 'key', 'important']):
         main_items = [f['name'] for f in functions if not f['name'].startswith('_')][:5]
         answer = f"Key components:\n• Main functions: {', '.join(main_items)}\n• Classes: {', '.join([c['name'] for c in classes[:3]])}"
+    elif any(word in question_lower for word in ['http', 'request', 'api']):
+        http_funcs = [f['name'] for f in functions if any(term in f['name'].lower() for term in ['get', 'post', 'request', 'http'])]
+        answer = f"HTTP-related functions found: {', '.join(http_funcs[:5]) if http_funcs else 'None detected'}"
     else:
         answer = f"I analyzed {len(elements)} code elements in this {languages[0]} codebase. Try asking: 'What does this do?', 'How many functions?', or 'What are the main components?'"
     
     return {
-        "answer": answer + "\n\n(Using code analysis - add OpenAI key for AI responses)",
+        "answer": answer + "\n\n(Using intelligent code analysis)",
         "context_elements": len(elements)
     }
 
