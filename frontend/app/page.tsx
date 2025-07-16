@@ -7,6 +7,7 @@ interface Repository {
   github_url: string;
   status: string;
   file_count?: number;
+  code_elements_count?: number;
   error?: string;
   files?: Array<{
     path: string;
@@ -15,15 +16,30 @@ interface Repository {
   }>;
 }
 
+interface CodeElement {
+  type: string;
+  name: string;
+  file_path: string;
+  start_line: number;
+  end_line: number;
+  code: string;
+  docstring: string;
+  language: string;
+}
+
 export default function Home() {
   const [githubUrl, setGithubUrl] = useState('');
   const [repository, setRepository] = useState<Repository | null>(null);
   const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<CodeElement[]>([]);
+  const [searching, setSearching] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setRepository(null);
+    setSearchResults([]);
     
     try {
       const response = await fetch('http://localhost:8000/repositories', {
@@ -60,6 +76,24 @@ export default function Home() {
       console.error('Error:', error);
       setLoading(false);
     }
+  };
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!repository || repository.status !== 'ready') return;
+    
+    setSearching(true);
+    try {
+      const response = await fetch(
+        `http://localhost:8000/repositories/${repository.id}/search?q=${encodeURIComponent(searchQuery)}`
+      );
+      const data = await response.json();
+      setSearchResults(data.results || []);
+    } catch (error) {
+      console.error('Search error:', error);
+      setSearchResults([]);
+    }
+    setSearching(false);
   };
 
   return (
@@ -116,6 +150,7 @@ export default function Home() {
                   'bg-yellow-100 text-yellow-800'
                 }`}>
                   {repository.status === 'cloning' ? 'Cloning repository...' :
+                   repository.status === 'parsing' ? 'Parsing code...' :
                    repository.status === 'ready' ? 'Ready for analysis' :
                    repository.status === 'error' ? 'Error occurred' :
                    repository.status}
@@ -125,6 +160,12 @@ export default function Home() {
               {repository.file_count && (
                 <div>
                   <strong>Files Found:</strong> {repository.file_count}
+                </div>
+              )}
+
+              {repository.code_elements_count && (
+                <div>
+                  <strong>Code Elements:</strong> {repository.code_elements_count} functions/classes found
                 </div>
               )}
               
@@ -160,6 +201,74 @@ export default function Home() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+        
+        {repository && repository.status === 'ready' && (
+          <div className="mt-8 bg-white p-6 rounded-lg shadow">
+            <h2 className="text-xl font-semibold mb-4">Search Code</h2>
+            <form onSubmit={handleSearch} className="mb-4">
+              <div className="flex gap-4">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search functions, classes, or code content..."
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  type="submit"
+                  disabled={searching}
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                >
+                  {searching ? 'Searching...' : 'Search'}
+                </button>
+              </div>
+            </form>
+            
+            {searchResults && searchResults.length > 0 && (
+              <div>
+                <h3 className="font-semibold mb-3">Search Results ({searchResults.length})</h3>
+                <div className="space-y-4 max-h-96 overflow-y-auto">
+                  {searchResults.map((element, index) => (
+                    <div key={index} className="border rounded-lg p-4 bg-gray-50">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <span className="font-mono text-lg font-semibold text-blue-600">
+                            {element.name}
+                          </span>
+                          <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
+                            {element.type}
+                          </span>
+                          <span className="ml-2 px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">
+                            {element.language}
+                          </span>
+                        </div>
+                        <span className="text-sm text-gray-500">
+                          {element.file_path}:{element.start_line}
+                        </span>
+                      </div>
+                      
+                      {element.docstring && (
+                        <p className="text-gray-600 text-sm mb-2 italic">
+                          {element.docstring}
+                        </p>
+                      )}
+                      
+                      <pre className="bg-gray-800 text-green-400 p-3 rounded text-sm overflow-x-auto">
+                        <code>{element.code?.slice(0, 300) || 'No code preview available'}...</code>
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {searchQuery && searchResults && searchResults.length === 0 && !searching && (
+              <div className="text-gray-500 text-center py-4">
+                No results found for "{searchQuery}"
+              </div>
+            )}
           </div>
         )}
         
