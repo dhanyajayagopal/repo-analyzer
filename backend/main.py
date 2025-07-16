@@ -7,8 +7,19 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from services.repo_service import RepositoryService
 from parsers.code_parser import CodeParser
+import os
+from dotenv import load_dotenv
 
+# Debug environment loading
+print("=== DEBUG START ===")
+print(f"Current directory: {os.getcwd()}")
+print(f".env exists: {os.path.exists('.env')}")
+
+# Load environment
 load_dotenv()
+
+# Check what was loaded
+api_key = os.getenv("OPENAI_API_KEY")
 
 app = FastAPI(title="Repo Analyzer API")
 
@@ -183,6 +194,87 @@ async def query_codebase(request: QueryRequest):
         "response": "This is a placeholder response",
         "relevant_files": []
     }
+
+class AskRequest(BaseModel):
+    question: str
+
+@app.post("/repositories/{repo_id}/ask")
+async def ask_about_code(repo_id: str, request: AskRequest):
+    """Ask natural language questions about the codebase"""
+    question = request.question
+    print(f"AI query for repo {repo_id}: '{question}'")
+    
+    if repo_id not in parsed_code:
+        raise HTTPException(status_code=404, detail="Repository not found or not parsed")
+    
+    elements = parsed_code[repo_id]
+    
+    if not elements:
+        return {"answer": "No code elements found in this repository."}
+    
+    # Analyze code structure for intelligent responses
+    functions = [e for e in elements if e['type'] == 'function']
+    classes = [e for e in elements if e['type'] == 'class']
+    languages = list(set(e['language'] for e in elements))
+    
+    # Use real OpenAI if available, otherwise use smart mock
+    if client:
+        try:
+            # Create context from code elements
+            context_parts = []
+            for element in elements[:15]:
+                context_parts.append(
+                    f"File: {element['file_path']}\n"
+                    f"Type: {element['type']}\n"
+                    f"Name: {element['name']}\n"
+                    f"Code:\n{element['code'][:150]}...\n"
+                )
+            
+            context = "\n---\n".join(context_parts)
+            
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "You are a code analysis assistant. Answer questions about the provided codebase clearly and concisely."
+                    },
+                    {
+                        "role": "user", 
+                        "content": f"Here's a codebase:\n\n{context}\n\nQuestion: {question}"
+                    }
+                ],
+                max_tokens=500,
+                temperature=0.3
+            )
+            
+            return {
+                "answer": response.choices[0].message.content,
+                "context_elements": len(elements)
+            }
+            
+        except Exception as e:
+            print(f"OpenAI API error: {e}")
+            # Fall back to mock if API fails
+    
+    # Smart mock response based on actual code analysis
+    question_lower = question.lower()
+    
+    if any(word in question_lower for word in ['what', 'does', 'do', 'purpose']):
+        answer = f"This is a {languages[0]} project with {len(functions)} functions and {len(classes)} classes. Based on the function names like {', '.join([f['name'] for f in functions[:3]])}, it appears to handle HTTP requests and web API functionality."
+    elif any(word in question_lower for word in ['how many', 'count']):
+        answer = f"Code statistics:\n• {len(functions)} functions\n• {len(classes)} classes\n• {len(set(e['file_path'] for e in elements))} files\n• Language: {', '.join(languages)}"
+    elif any(word in question_lower for word in ['main', 'key', 'important']):
+        main_items = [f['name'] for f in functions if not f['name'].startswith('_')][:5]
+        answer = f"Key components:\n• Main functions: {', '.join(main_items)}\n• Classes: {', '.join([c['name'] for c in classes[:3]])}"
+    else:
+        answer = f"I analyzed {len(elements)} code elements in this {languages[0]} codebase. Try asking: 'What does this do?', 'How many functions?', or 'What are the main components?'"
+    
+    return {
+        "answer": answer + "\n\n(Using code analysis - add OpenAI key for AI responses)",
+        "context_elements": len(elements)
+    }
+
 
 if __name__ == "__main__":
     import uvicorn

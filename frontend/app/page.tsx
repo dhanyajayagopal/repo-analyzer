@@ -34,6 +34,37 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<CodeElement[]>([]);
   const [searching, setSearching] = useState(false);
+  const [aiQuestion, setAiQuestion] = useState('');
+  const [aiResponse, setAiResponse] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+
+  // Add AI query function
+  const handleAiQuery = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!repository || repository.status !== 'ready') return;
+    
+    setAiLoading(true);
+    setAiResponse('');
+    
+    try {
+      const response = await fetch(
+        `http://localhost:8000/repositories/${repository.id}/ask`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ question: aiQuestion }),
+        }
+      );
+      const data = await response.json();
+      setAiResponse(data.answer);
+    } catch (error) {
+      console.error('AI query error:', error);
+      setAiResponse('Sorry, there was an error processing your question.');
+    }
+    setAiLoading(false);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -261,6 +292,37 @@ export default function Home() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {repository && repository.status === 'ready' && (
+              <div className="mt-8 bg-white p-6 rounded-lg shadow">
+                <h2 className="text-xl font-semibold mb-4">Ask AI About This Code</h2>
+                <form onSubmit={handleAiQuery} className="mb-4">
+                  <div className="flex gap-4">
+                    <input
+                      type="text"
+                      value={aiQuestion}
+                      onChange={(e) => setAiQuestion(e.target.value)}
+                      placeholder="What does this codebase do? How does authentication work?"
+                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                    <button
+                      type="submit"
+                      disabled={aiLoading}
+                      className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+                    >
+                      {aiLoading ? 'Thinking...' : 'Ask AI'}
+                    </button>
+                  </div>
+                </form>
+                
+                {aiResponse && (
+                  <div className="bg-purple-50 p-4 rounded-lg">
+                    <h3 className="font-semibold mb-2 text-purple-800">AI Response:</h3>
+                    <div className="text-gray-800 whitespace-pre-wrap">{aiResponse}</div>
+                  </div>
+                )}
               </div>
             )}
 
